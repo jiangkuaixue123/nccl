@@ -1257,6 +1257,15 @@ static ncclResult_t uploadWork(struct ncclComm* comm, struct ncclKernelPlan* pla
   // Write the channel-shared work structs.
   struct ncclWorkList* workNode = ncclIntruQueueHead(&plan->workQueue);
   while (workNode != nullptr) {
+    // Debug: print work data before copy
+    if (workNode->workType == ncclDevWorkTypeP2p) {
+      struct ncclDevWorkP2p* work = (struct ncclDevWorkP2p*)(workNode+1);
+      INFO(NCCL_INIT, "[HOST] Before copy: sendRank=%d sendAddr=%p sendBytes=%ld recvRank=%d recvAddr=%p recvBytes=%ld fifoCursor=%u fifoMask=%u",
+           work->sendRank, work->sendAddr, (long)work->sendBytes,
+           work->recvRank, work->recvAddr, (long)work->recvBytes,
+           fifoCursor, fifoMask);
+    }
+
     char* dst = (char*)fifoBufHost;
     char* src = (char*)(workNode+1);
     for (int n = workNode->size; n != 0; n -= 16) {

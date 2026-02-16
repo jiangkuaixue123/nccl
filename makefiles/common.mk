@@ -126,9 +126,9 @@ else
 .SILENT:
 endif
 
-ifneq ($(TRACE), 0)
+# ifneq ($(TRACE), 0)
 CXXFLAGS  += -DENABLE_TRACE
-endif
+# endif
 
 ifeq ($(NVTX), 0)
 CXXFLAGS  += -DNVTX_DISABLE

@@ -61,7 +61,9 @@ static ncclResult_t ncclNet_isend(void* sendComm, void* data, size_t size, int t
   int sizeInt;
   if (size > MAX_NET_SIZE) return ncclInternalError;
   sizeInt = (int)size;
+  // INFO(NCCL_NET, "NET/Plugin: isend begin data=%p size=%zu tag=%d", data, size, tag);
   ncclResult_t ans = ncclNet_v8->isend(sendComm, data, sizeInt, tag, mhandle, request);
+  // INFO(NCCL_NET, "NET/Plugin: isend end data=%p request=%p ret=%d", data, request ? *request : NULL, ans);
   return ans;
 }
 

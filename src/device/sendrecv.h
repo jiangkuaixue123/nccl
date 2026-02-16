@@ -18,15 +18,27 @@ struct RunWorkBatch<ncclFuncSendRecv, T, RedOp, NCCL_ALGO_RING, NCCL_PROTO_SIMPL
     bool useLargeChunk = (work->sendIpcReg && ncclShmem.comm.isAllNvlink) || work->sendNetReg;
     int chunkSize = useLargeChunk ? NCCL_MAX_NET_SIZE : u32fp8Decode(work->sendChunkSize_u32fp8);
     int stepSize = useLargeChunk ? NCCL_MAX_NET_SIZE : ncclShmem.comm.p2pChunkSize;
+    if (tid == 0) {
+      printf("[NCCL DEV runSend] begin bytes=%zu sendRank=%d sendAddr=%p chunkSize=%d stepSize=%d useLargeChunk=%d\n",
+             (size_t)work->sendBytes, work->sendRank, work->sendAddr, chunkSize, stepSize, (int)useLargeChunk);
+    }
     Primitives<T, RedOp, FanAsymmetric<0, 1>, 1, Proto, 1>
       prims(tid, tn, nullptr, &work->sendRank, work->sendAddr, nullptr,
             /*redOpArg(ignored)=*/0, group, 1, 1, nullptr, work, stepSize);
     size_t cursor = 0;
+    int loopCount = 0;
     do {
       int n = min(size_t(chunkSize), bytes-cursor);
+      if (tid == 0) {
+        printf("[NCCL DEV runSend] loop %d: cursor=%zu n=%d\n", loopCount, cursor, n);
+      }
       prims.directSend(cursor, cursor, n);
       cursor += n;
+      loopCount++;
     } while (cursor < bytes);
+    if (tid == 0) {
+      printf("[NCCL DEV runSend] end loopCount=%d\n", loopCount);
+    }
   }
 
   template<typename Proto>
@@ -35,15 +47,27 @@ struct RunWorkBatch<ncclFuncSendRecv, T, RedOp, NCCL_ALGO_RING, NCCL_PROTO_SIMPL
     bool useLargeChunk = (work->recvIpcReg && ncclShmem.comm.isAllNvlink) || work->recvNetReg;
     int chunkSize = useLargeChunk ? NCCL_MAX_NET_SIZE : u32fp8Decode(work->recvChunkSize_u32fp8);
     int stepSize = useLargeChunk ? NCCL_MAX_NET_SIZE : ncclShmem.comm.p2pChunkSize;
+    if (tid == 0) {
+      printf("[NCCL DEV runRecv] begin bytes=%zu recvRank=%d recvAddr=%p chunkSize=%d stepSize=%d useLargeChunk=%d\n",
+             (size_t)work->recvBytes, work->recvRank, work->recvAddr, chunkSize, stepSize, (int)useLargeChunk);
+    }
     Primitives<T, RedOp, FanAsymmetric<1, 0>, 1, Proto, 1>
       prims(tid, tn, &work->recvRank, nullptr, nullptr, work->recvAddr,
             /*redOpArg(ignored)=*/0, group, 1, 1, nullptr, work, stepSize);
     size_t cursor = 0;
+    int loopCount = 0;
     do {
       int n = min(size_t(chunkSize), bytes-cursor);
+      if (tid == 0) {
+        printf("[NCCL DEV runRecv] loop %d: cursor=%zu n=%d\n", loopCount, cursor, n);
+      }
       prims.directRecv(cursor, n);
       cursor += n;
+      loopCount++;
     } while (cursor < bytes);
+    if (tid == 0) {
+      printf("[NCCL DEV runRecv] end loopCount=%d\n", loopCount);
+    }
   }
 
   __device__ __forceinline__ void run() {
