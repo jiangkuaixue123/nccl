@@ -155,7 +155,9 @@ ncclResult_t ncclIbMultiSend(struct ncclIbSendComm* comm, int slot) {
       reqs[r]->pInfo[0].nEventHandles++;
     }
 #endif
+    printf("jcz ibv post send begin\n");
     NCCLCHECK(wrap_ibv_post_send(qp->qp, comm->wrs, &bad_wr));
+    printf("jcz ibv post send end\n");
 
     for (int r=0; r<nreqs; r++) {
       int chunkSize = DIVUP(DIVUP(reqs[r]->send.size, nqps), align) * align;
@@ -366,6 +368,7 @@ ncclResult_t ncclIbIrecv(void* recvComm, int n, void** data, size_t* sizes, int*
   struct ibv_recv_wr* bad_wr;
   int qpIndex = -1;
   ncclIbQp* qp = NULL;
+  printf("jcz begin wrap_ibv_post_recv nqps:%d n:%d\n", nqps, n);
   for (int i = 0; i < nqps; i++) {
     NCCLCHECK(ncclIbCommBaseGetQpForRequest(&comm->base, comm->base.fifoHead, i, &qp, &qpIndex));
     ncclIbAddEvent(req, qp->devIndex);
@@ -387,6 +390,7 @@ ncclResult_t ncclIbIrecv(void* recvComm, int n, void** data, size_t* sizes, int*
 #endif
     NCCLCHECK(wrap_ibv_post_recv(qp->qp, &wr, &bad_wr));
   }
+  printf("jcz end wrap_ibv_post_recv\n");
 
   TIME_STOP(1);
 
