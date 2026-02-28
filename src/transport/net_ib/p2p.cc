@@ -172,7 +172,6 @@ ncclResult_t ncclIbMultiSend(struct ncclIbSendComm* comm, int slot) {
 
 ncclResult_t ncclIbIsend(void* sendComm, void* data, size_t size, int tag, void* mhandle, void* phandle, void** request) {
   struct ncclIbSendComm* comm = (struct ncclIbSendComm*)sendComm;
-  INFO(NCCL_INIT|NCCL_P2P, "ncclIbIsend");
   if (comm->base.ready == 0) {
     WARN("NET/IB: ncclIbIsend() called when comm->base.ready == 0");
     *request = NULL;
@@ -336,7 +335,6 @@ ncclResult_t ncclIbPostFifo(struct ncclIbRecvComm* comm, int n, void** data, siz
 
 ncclResult_t ncclIbIrecv(void* recvComm, int n, void** data, size_t* sizes, int* tags, void** mhandles, void** phandles, void** request) {
   struct ncclIbRecvComm* comm = (struct ncclIbRecvComm*)recvComm;
-  INFO(NCCL_INIT|NCCL_P2P, "ncclIbIrecv");
   if (comm->base.ready == 0) {
     WARN("NET/IB: ncclIbIrecv() called when comm->base.ready == 0");
     *request = NULL;

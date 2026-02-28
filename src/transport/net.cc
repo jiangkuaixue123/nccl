@@ -1218,6 +1218,19 @@ static ncclResult_t recvProxyFree(struct ncclProxyConnection* connection, struct
 static_assert(NCCL_STEPS <= NCCL_NET_MAX_REQUESTS, "Not enough net requests to cover for steps");
 
 static ncclResult_t sendProxyProgress(struct ncclProxyState* proxyState, struct ncclProxyArgs* args) {
+  // Debug: counter-based sampling
+  static int dbg_counter = 0;
+  if (++dbg_counter % 10000 == 0) {
+    printf("sendProxyProgress: dbg_counter=%d nsubs=%d state=%d", dbg_counter, args->nsubs, args->state);
+    for (int s=0; s<args->nsubs; s++) {
+      struct ncclProxySubArgs* sub = args->subs+s;
+      printf("  sub[%d]: posted=%ld transmitted=%ld done=%ld nsteps=%ld",
+           s, sub->posted, sub->transmitted, sub->done, sub->nsteps);
+    }
+    printf("\n");
+    fflush(stdout);
+  }
+
   int checkedNetAttr = 0;
   if (args->state == ncclProxyOpReady) {
     for (int s=0; s<args->nsubs; s++) {
@@ -1233,6 +1246,9 @@ static ncclResult_t sendProxyProgress(struct ncclProxyState* proxyState, struct 
         sub->sendMhandle = resources->mhandles[args->protocol];
     }
     args->state = ncclProxyOpProgress;
+  }
+  if (++dbg_counter % 10000 == 0) {
+    printf("sendProxyProgress 1: dbg_counter=%d\n", dbg_counter);
   }
   args->idle = 1;
   if (args->state == ncclProxyOpProgress) {
@@ -1276,6 +1292,13 @@ static ncclResult_t sendProxyProgress(struct ncclProxyState* proxyState, struct 
         int buffSlot = (sub->base+sub->transmitted)%NCCL_STEPS;
         volatile uint64_t* recvTail = &resources->recvMem->tail;
         uint64_t tail = sub->base + sub->transmitted;
+        // Debug: why not transmitting?
+        static int dbg_tx_counter = 0;
+        if (++dbg_tx_counter % 10000 == 0) {
+          printf("sendProxy tx check: buffSlot=%d connFifo.size=%ld recvTail=%lu tail=%lu p=%d\n",
+                 buffSlot, (long)connFifo[buffSlot].size, *recvTail, tail, p);
+          fflush(stdout);
+        }
         if (connFifo[buffSlot].size != -1 && (*recvTail > tail || p == NCCL_PROTO_LL)) {
           // We have something to receive, let's check if it's completely ready.
           int size = connFifo[buffSlot].size;
@@ -1313,6 +1336,13 @@ static ncclResult_t sendProxyProgress(struct ncclProxyState* proxyState, struct 
               assert(sendSize == size);
             }
           }
+          // Debug: check ready status
+          static int dbg_ready_counter = 0;
+          if (++dbg_ready_counter % 10000 == 0) {
+            printf("sendProxy ready check: ready=%d p=%d shared=%d reg=%d size=%d\n",
+                   ready, p, resources->shared, sub->reg, size);
+            fflush(stdout);
+          }
           if (ready) {
             ncclProfilerRecordProxyStepEventState(s, args, transmittedStepId, ncclProfilerProxyStepSendPeerWait_v4);
             // Data is ready, try to send.
@@ -1322,9 +1352,11 @@ static ncclResult_t sendProxyProgress(struct ncclProxyState* proxyState, struct 
             void* phandle = &sub->pHandles[DIVUP(transmittedStepId, args->sliceSteps)%NCCL_STEPS];
             if (!checkedNetAttr++)
               setXferNetAttrs(proxyState, args, 1);
-            // printf("jcz begin isend\n");
+            printf("jcz begin isend buff=%p size=%d\n", buff, size);
+            fflush(stdout);
             NCCLCHECK(proxyState->ncclNet->isend(resources->netSendComm, buff, size, resources->tpRank, sub->sendMhandle, phandle, sub->requests+buffSlot));
-            // printf("jcz end isend\n");
+            printf("jcz end isend request=%p\n", sub->requests[buffSlot]);
+            fflush(stdout);
             if (sub->requests[buffSlot] != NULL) {
               TRACE(NCCL_NET, "sendProxy [%ld/%d/%d] Isend posted, req %p, buff %p, size %d, proto %d, myRank %d, channelId %d, mhandle %p", sub->transmitted, buffSlot, sub->nsteps, sub->requests[buffSlot], buff, size, p, proxyState->tpRank, sub->channelId, sub->sendMhandle);
               sub->transSize = size;
@@ -1336,12 +1368,17 @@ static ncclResult_t sendProxyProgress(struct ncclProxyState* proxyState, struct 
           }
         }
       }
+      if (++dbg_counter % 10000 == 0) {
+        printf("sendProxyProgress 2: dbg_counter=%d done=%" PRIu64 " transmitted=%" PRIu64 "\n", dbg_counter, sub->done, sub->transmitted);
+      }
       // Check whether the network has completed some send operations.
       if (sub->done < sub->transmitted) {
         int done;
         int size;
         int buffSlot = (sub->base+sub->done)%NCCL_STEPS;
+        printf("jcz begin sendProxyProgress test %p\n", sub->requests[buffSlot]);
         NCCLCHECK(proxyState->ncclNet->test(sub->requests[buffSlot], &done, &size));
+        printf("jcz end sendProxyProgress test %p\n", sub->requests[buffSlot]);
         if (done) {
           // Make sure size is reset to -1 before we update the head.
           connFifo[buffSlot].size = -1;
@@ -1375,6 +1412,19 @@ static ncclResult_t sendProxyProgress(struct ncclProxyState* proxyState, struct 
 }
 
 static ncclResult_t recvProxyProgress(struct ncclProxyState* proxyState, struct ncclProxyArgs* args) {
+  // Debug: counter-based sampling
+  static int dbg_counter = 0;
+  if (++dbg_counter % 10000 == 0) {
+    printf("recvProxyProgress: dbg_counter=%d nsubs=%d state=%d", dbg_counter, args->nsubs, args->state);
+    for (int s=0; s<args->nsubs; s++) {
+      struct ncclProxySubArgs* sub = args->subs+s;
+      printf("  sub[%d]: posted=%ld received=%ld transmitted=%ld done=%ld nsteps=%ld",
+           s, sub->posted, sub->received, sub->transmitted, sub->done, sub->nsteps);
+    }
+    printf("\n");
+    fflush(stdout);
+  }
+
   int checkedNetAttr = 0;
   if (args->state == ncclProxyOpReady) {
     // Initialize subs and group them by same recvComm.
@@ -1444,6 +1494,13 @@ static ncclResult_t recvProxyProgress(struct ncclProxyState* proxyState, struct 
             if (resources->shared) {
               if (sub->reg) {
                 // Wait until CUDA kernel has started before we access the user buffer directly.
+                // Debug: check reg buffer condition
+                static int dbg_reg_counter = 0;
+                if (++dbg_reg_counter % 10000 == 0) {
+                  printf("recvProxy reg check: regBufferReady=%d connFifo.size=%ld base=%d\n",
+                         sub->regBufferReady, (long)connFifo[sub->base % NCCL_STEPS].size, sub->base);
+                  fflush(stdout);
+                }
                 if (!sub->regBufferReady && connFifo[sub->base % NCCL_STEPS].size == -1) continue;
                 sub->regBufferReady = 1;
                 ptrs[subCount] = sub->recvbuff + sub->posted * NCCL_MAX_NET_SIZE;
@@ -1510,7 +1567,9 @@ static ncclResult_t recvProxyProgress(struct ncclProxyState* proxyState, struct 
         int sizes[NCCL_PROXY_MAX_SUBS];
         void* mhandles[NCCL_PROXY_MAX_SUBS];
         for (int i=0; i<NCCL_PROXY_MAX_SUBS; i++) sizes[i] = 0;
+        // printf("jcz begin recvProxyProgress 0 test\n");
         NCCLCHECK(proxyState->ncclNet->test(subGroup->requests[step%NCCL_STEPS], &done, sizes));
+        // printf("jcz end recvProxyProgress 0 test\n");
         if (done) {
           int needFlush = 0;
           int totalSize = 0;
@@ -1580,7 +1639,9 @@ static ncclResult_t recvProxyProgress(struct ncclProxyState* proxyState, struct 
         uint64_t step = subGroup->transmitted;
         int done = 1;
         void* request = subGroup->requests[step%NCCL_STEPS];
+        printf("jcz begin recvProxyProgress 1 test %p\n", request);
         if (request) NCCLCHECK(proxyState->ncclNet->test(request, &done, NULL));
+        printf("jcz end recvProxyProgress 1 test %p\n", request);
         if (done) {
           for (int i=0; i<subGroup->groupSize; i++) {
             struct ncclProxySubArgs* sub = subGroup + i;
