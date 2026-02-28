@@ -1224,8 +1224,8 @@ static ncclResult_t sendProxyProgress(struct ncclProxyState* proxyState, struct 
     printf("sendProxyProgress: dbg_counter=%d nsubs=%d state=%d", dbg_counter, args->nsubs, args->state);
     for (int s=0; s<args->nsubs; s++) {
       struct ncclProxySubArgs* sub = args->subs+s;
-      printf("  sub[%d]: posted=%ld transmitted=%ld done=%ld nsteps=%ld",
-           s, sub->posted, sub->transmitted, sub->done, sub->nsteps);
+      printf("  sub[%d]: posted=%ld transmitted=%ld done=%ld nsteps=%d",
+           s, (long)sub->posted, (long)sub->transmitted, (long)sub->done, sub->nsteps);
     }
     printf("\n");
     fflush(stdout);
@@ -1418,8 +1418,8 @@ static ncclResult_t recvProxyProgress(struct ncclProxyState* proxyState, struct 
     printf("recvProxyProgress: dbg_counter=%d nsubs=%d state=%d", dbg_counter, args->nsubs, args->state);
     for (int s=0; s<args->nsubs; s++) {
       struct ncclProxySubArgs* sub = args->subs+s;
-      printf("  sub[%d]: posted=%ld received=%ld transmitted=%ld done=%ld nsteps=%ld",
-           s, sub->posted, sub->received, sub->transmitted, sub->done, sub->nsteps);
+      printf("  sub[%d]: posted=%ld received=%ld transmitted=%ld done=%ld nsteps=%d",
+           s, (long)sub->posted, (long)sub->received, (long)sub->transmitted, (long)sub->done, sub->nsteps);
     }
     printf("\n");
     fflush(stdout);
@@ -1497,8 +1497,8 @@ static ncclResult_t recvProxyProgress(struct ncclProxyState* proxyState, struct 
                 // Debug: check reg buffer condition
                 static int dbg_reg_counter = 0;
                 if (++dbg_reg_counter % 10000 == 0) {
-                  printf("recvProxy reg check: regBufferReady=%d connFifo.size=%ld base=%d\n",
-                         sub->regBufferReady, (long)connFifo[sub->base % NCCL_STEPS].size, sub->base);
+                  printf("recvProxy reg check: regBufferReady=%d connFifo.size=%ld base=%lu\n",
+                         sub->regBufferReady, (long)connFifo[sub->base % NCCL_STEPS].size, (unsigned long)sub->base);
                   fflush(stdout);
                 }
                 if (!sub->regBufferReady && connFifo[sub->base % NCCL_STEPS].size == -1) continue;
