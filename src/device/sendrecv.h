@@ -27,6 +27,9 @@ struct RunWorkBatch<ncclFuncSendRecv, T, RedOp, NCCL_ALGO_RING, NCCL_PROTO_SIMPL
       prims.directSend(cursor, cursor, n);
       cursor += n;
     } while (cursor < bytes);
+    if (tid == 0) {
+      printf("[NCCL DEV runSend] end \n");
+    }
   }
 
   template<typename Proto>
@@ -44,6 +47,9 @@ struct RunWorkBatch<ncclFuncSendRecv, T, RedOp, NCCL_ALGO_RING, NCCL_PROTO_SIMPL
       prims.directRecv(cursor, n);
       cursor += n;
     } while (cursor < bytes);
+    if (tid == 0) {
+      printf("[NCCL DEV runRecv] end \n");
+    }
   }
 
   __device__ __forceinline__ void run() {

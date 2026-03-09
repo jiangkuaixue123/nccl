@@ -1218,8 +1218,27 @@ static ncclResult_t recvProxyFree(struct ncclProxyConnection* connection, struct
 static_assert(NCCL_STEPS <= NCCL_NET_MAX_REQUESTS, "Not enough net requests to cover for steps");
 
 static ncclResult_t sendProxyProgress(struct ncclProxyState* proxyState, struct ncclProxyArgs* args) {
+  // Debug: counter-based sampling
+  static int dbg_counter = 0;
+  static int last_state = -1;
+  if (++dbg_counter % 10000 == 0 || args->state != last_state) {
+    last_state = args->state;
+    printf("[SEND_PROXY] rank=%d state=%d nsubs=%d dbg_counter=%d",
+           proxyState->tpRank, args->state, args->nsubs, dbg_counter);
+    for (int s=0; s<args->nsubs; s++) {
+      struct ncclProxySubArgs* sub = args->subs+s;
+      printf(" sub[%d]: posted=%ld transmitted=%ld done=%ld nsteps=%ld",
+             s, sub->posted, sub->transmitted, sub->done, sub->nsteps);
+    }
+    printf("\n");
+    fflush(stdout);
+  }
+
   int checkedNetAttr = 0;
   if (args->state == ncclProxyOpReady) {
+    printf("[SEND_PROXY] rank=%d state=READY->PROGRESS nsubs=%d\n",
+           proxyState->tpRank, args->nsubs);
+    fflush(stdout);
     for (int s=0; s<args->nsubs; s++) {
       struct ncclProxySubArgs* sub = args->subs+s;
       struct sendNetResources* resources = (struct sendNetResources*) (sub->connection->transportResources);
@@ -1276,6 +1295,16 @@ static ncclResult_t sendProxyProgress(struct ncclProxyState* proxyState, struct 
         int buffSlot = (sub->base+sub->transmitted)%NCCL_STEPS;
         volatile uint64_t* recvTail = &resources->recvMem->tail;
         uint64_t tail = sub->base + sub->transmitted;
+
+        // Debug: log why we're blocked (sampling to avoid flooding)
+        static int block_dbg_counter = 0;
+        if (++block_dbg_counter % 50000 == 0) {
+          printf("[SEND_PROXY_BLOCK] rank=%d sub[%d] buffSlot=%d size=%d recvTail=%lu tail=%lu proto=%d\n",
+                 proxyState->tpRank, s, buffSlot, connFifo[buffSlot].size,
+                 (unsigned long)*recvTail, (unsigned long)tail, p);
+          fflush(stdout);
+        }
+
         if (connFifo[buffSlot].size != -1 && (*recvTail > tail || p == NCCL_PROTO_LL)) {
           // We have something to receive, let's check if it's completely ready.
           int size = connFifo[buffSlot].size;
@@ -1345,6 +1374,9 @@ static ncclResult_t sendProxyProgress(struct ncclProxyState* proxyState, struct 
           connFifo[buffSlot].size = -1;
           std::atomic_thread_fence(std::memory_order_seq_cst);
           TRACE(NCCL_NET, "sendProxy [%ld/%d/%d] request %p done", sub->done, buffSlot, sub->nsteps, sub->requests[buffSlot]);
+          printf("[SEND_PROXY] rank=%d sub[%d] isend DONE step=%ld/%ld buffSlot=%d\n",
+                 proxyState->tpRank, s, sub->done, sub->nsteps, buffSlot);
+          fflush(stdout);
           sub->done += args->sliceSteps;
           ncclProfilerStopProxyStepEvent(s, args, doneStepId);
 
@@ -1355,6 +1387,9 @@ static ncclResult_t sendProxyProgress(struct ncclProxyState* proxyState, struct 
           }
           args->idle = 0;
           if (sub->done == sub->nsteps) {
+            printf("[SEND_PROXY] rank=%d sub[%d] ALL_DONE nsteps=%ld\n",
+                   proxyState->tpRank, s, sub->nsteps);
+            fflush(stdout);
             args->done++;
             if (sub->ringAlgo && sub->ringAlgo->decRefCount() == 0) delete sub->ringAlgo;
             sub->ringAlgo = NULL;
@@ -1363,6 +1398,8 @@ static ncclResult_t sendProxyProgress(struct ncclProxyState* proxyState, struct 
       }
     }
     if (args->done == args->nsubs) {
+      printf("[SEND_PROXY] rank=%d PROGRESS->NONE all_subs_done\n", proxyState->tpRank);
+      fflush(stdout);
       for (int s=0; s<args->nsubs; s++) {
         ncclProfilerStopProxyOpEvent(s, args);
       }
@@ -1373,8 +1410,27 @@ static ncclResult_t sendProxyProgress(struct ncclProxyState* proxyState, struct 
 }
 
 static ncclResult_t recvProxyProgress(struct ncclProxyState* proxyState, struct ncclProxyArgs* args) {
+  // Debug: counter-based sampling
+  static int dbg_counter = 0;
+  static int last_state = -1;
+  if (++dbg_counter % 10000 == 0 || args->state != last_state) {
+    last_state = args->state;
+    printf("[RECV_PROXY] rank=%d state=%d nsubs=%d dbg_counter=%d",
+           proxyState->tpRank, args->state, args->nsubs, dbg_counter);
+    for (int s=0; s<args->nsubs; s++) {
+      struct ncclProxySubArgs* sub = args->subs+s;
+      printf(" sub[%d]: posted=%ld received=%ld transmitted=%ld done=%ld nsteps=%ld",
+             s, sub->posted, sub->received, sub->transmitted, sub->done, sub->nsteps);
+    }
+    printf("\n");
+    fflush(stdout);
+  }
+
   int checkedNetAttr = 0;
   if (args->state == ncclProxyOpReady) {
+    printf("[RECV_PROXY] rank=%d state=READY->PROGRESS nsubs=%d\n",
+           proxyState->tpRank, args->nsubs);
+    fflush(stdout);
     // Initialize subs and group them by same recvComm.
     void* recvComm;
     int groupSize = 0;
@@ -1431,13 +1487,32 @@ static ncclResult_t recvProxyProgress(struct ncclProxyState* proxyState, struct 
         struct ncclProxySubArgs* sub = subGroup + i;
         int postedStepId = sub->posted;
         if (sub->posted < sub->nsteps) {
-          if (sub->posted >= sub->done + maxDepth) { subCount = 0; break; }
+          if (sub->posted >= sub->done + maxDepth) {
+            // Debug: log why we're blocked due to maxDepth
+            static int recv_block_depth_counter = 0;
+            if (++recv_block_depth_counter % 50000 == 0) {
+              printf("[RECV_PROXY_BLOCK_DEPTH] rank=%d sub[%d] posted=%ld >= done=%ld + maxDepth=%d\n",
+                     proxyState->tpRank, s+i, sub->posted, sub->done, maxDepth);
+              fflush(stdout);
+            }
+            subCount = 0; break;
+          }
           ncclProfilerStartRecvProxyStepEvent(s+i, args, postedStepId);
           struct recvNetResources* resources = (struct recvNetResources*) (sub->connection->transportResources);
           int stepSize = resources->buffSizes[p] / NCCL_STEPS;
           char* localBuff = NCCL_NET_MAP_GET_POINTER(&resources->map, cpu, buffs[p]);
           int buffSlot = (sub->base+sub->posted)%NCCL_STEPS;
           volatile struct ncclConnFifo* connFifo = (volatile struct ncclConnFifo*)resources->recvMem->connFifo;
+
+          // Debug: log connFifo state for reg buffer check
+          static int recv_block_fifo_counter = 0;
+          if (++recv_block_fifo_counter % 50000 == 0) {
+            printf("[RECV_PROXY_BLOCK_FIFO] rank=%d sub[%d] buffSlot=%d baseSlot=%d size=%d regBufferReady=%d reg=%d\n",
+                   proxyState->tpRank, s+i, buffSlot, sub->base % NCCL_STEPS,
+                   connFifo[sub->base % NCCL_STEPS].size, sub->regBufferReady, sub->reg);
+            fflush(stdout);
+          }
+
           if (p == NCCL_PROTO_SIMPLE) {
             if (resources->shared) {
               if (sub->reg) {
@@ -1510,6 +1585,9 @@ static ncclResult_t recvProxyProgress(struct ncclProxyState* proxyState, struct 
         for (int i=0; i<NCCL_PROXY_MAX_SUBS; i++) sizes[i] = 0;
         NCCLCHECK(proxyState->ncclNet->test(subGroup->requests[step%NCCL_STEPS], &done, sizes));
         if (done) {
+          printf("[RECV_PROXY] rank=%d irecv DONE step=%ld sizes[0]=%d\n",
+                 proxyState->tpRank, step, sizes[0]);
+          fflush(stdout);
           int needFlush = 0;
           int totalSize = 0;
           for (int i=0; i<NCCL_PROXY_MAX_SUBS; i++) totalSize += sizes[i];

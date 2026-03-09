@@ -241,7 +241,9 @@ ncclResult_t ncclIbIsend(void* sendComm, void* data, size_t size, int tag, void*
     }
 
     TIME_START(0);
+    printf("jcz ncclIbMultiSend begin\n");
     NCCLCHECK(ncclIbMultiSend(comm, slot));
+    printf("jcz ncclIbMultiSend end\n");
 
     // Clear slots[0]->nreqs, as well as other fields to help debugging and sanity checks
     memset((void*)slots, 0, sizeof(struct ncclIbSendFifo));
@@ -340,7 +342,7 @@ ncclResult_t ncclIbIrecv(void* recvComm, int n, void** data, size_t* sizes, int*
   }
   if (n > NCCL_NET_IB_MAX_RECVS) return ncclInternalError;
   NCCLCHECK(ncclIbStatsCheckFatalCount(&comm->base.stats,__func__));
-
+  printf("jcz ncclIbIrecv begin\n");
   struct ncclIbRequest* req;
   NCCLCHECK(ncclIbGetRequest(&comm->base, &req));
   req->type = NCCL_NET_IB_REQ_RECV;
@@ -392,6 +394,7 @@ ncclResult_t ncclIbIrecv(void* recvComm, int n, void** data, size_t* sizes, int*
   TIME_START(2);
   NCCLCHECK(ncclIbPostFifo(comm, n, data, sizes, tags, mhandles, req));
   TIME_STOP(2);
+  printf("jcz ncclIbIrecv end\n");
 
   *request = req;
   return ncclSuccess;
