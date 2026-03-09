@@ -1299,7 +1299,7 @@ static ncclResult_t sendProxyProgress(struct ncclProxyState* proxyState, struct 
         // Debug: log why we're blocked (sampling to avoid flooding)
         static int block_dbg_counter = 0;
         if (++block_dbg_counter % 50000 == 0) {
-          printf("[SEND_PROXY_BLOCK] rank=%d sub[%d] buffSlot=%d size=%d recvTail=%lu tail=%lu proto=%d\n",
+          printf("[SEND_PROXY_BLOCK 1] rank=%d sub[%d] buffSlot=%d size=%d recvTail=%lu tail=%lu proto=%d\n",
                  proxyState->tpRank, s, buffSlot, connFifo[buffSlot].size,
                  (unsigned long)*recvTail, (unsigned long)tail, p);
           fflush(stdout);
@@ -1307,6 +1307,13 @@ static ncclResult_t sendProxyProgress(struct ncclProxyState* proxyState, struct 
 
         if (connFifo[buffSlot].size != -1 && (*recvTail > tail || p == NCCL_PROTO_LL)) {
           // We have something to receive, let's check if it's completely ready.
+          if (block_dbg_counter % 50000 == 0) {
+            printf("[SEND_PROXY_BLOCK 2] rank=%d sub[%d] buffSlot=%d size=%d recvTail=%lu tail=%lu proto=%d\n",
+                   proxyState->tpRank, s, buffSlot, connFifo[buffSlot].size,
+                   (unsigned long)*recvTail, (unsigned long)tail, p);
+            fflush(stdout);
+          }
+
           int size = connFifo[buffSlot].size;
           bool shared = (p == NCCL_PROTO_SIMPLE) && resources->shared;
           char* buff = shared ? localBuff+connFifo[buffSlot].offset : localBuff+buffSlot*stepSize;
@@ -1348,6 +1355,13 @@ static ncclResult_t sendProxyProgress(struct ncclProxyState* proxyState, struct 
             // Coverity complains about the size here as pointing to an out-of-scope temporary.  Which is nonsense,
             // since size is a plain integer.
             // coverity[use_invalid:FALSE]
+
+            if (block_dbg_counter % 50000 == 0) {
+              printf("[SEND_PROXY_BLOCK 3] rank=%d sub[%d] buffSlot=%d size=%d recvTail=%lu tail=%lu proto=%d\n",
+                     proxyState->tpRank, s, buffSlot, connFifo[buffSlot].size,
+                     (unsigned long)*recvTail, (unsigned long)tail, p);
+              fflush(stdout);
+            }
             void* phandle = &sub->pHandles[DIVUP(transmittedStepId, args->sliceSteps)%NCCL_STEPS];
             if (!checkedNetAttr++)
               setXferNetAttrs(proxyState, args, 1);
