@@ -1254,6 +1254,37 @@ static ncclResult_t sendProxyProgress(struct ncclProxyState* proxyState, struct 
   if (args->state == ncclProxyOpProgress) {
     int p = args->protocol;
     int maxDepth = std::min(NCCL_STEPS, NCCL_SHARED_STEPS/args->nsubs);
+
+    // Debug: Count how many subs have ready data in connFifo simultaneously
+    static int connFifo_dbg_counter = 0;
+    int my_count = __sync_fetch_and_add(&connFifo_dbg_counter, 1);
+    if (my_count % 1000 == 0) {
+      int ready_count = 0;
+      int ready_subs[NCCL_STEPS]; // Store which subs are ready
+      for (int s=0; s<args->nsubs; s++) {
+        struct ncclProxySubArgs* sub = args->subs+s;
+        struct sendNetResources* resources = (struct sendNetResources*) (sub->connection->transportResources);
+        volatile struct ncclConnFifo* connFifo = (volatile struct ncclConnFifo*)resources->recvMem->connFifo;
+        volatile uint64_t* recvTail = &resources->recvMem->tail;
+        int buffSlot = (sub->base+sub->transmitted)%NCCL_STEPS;
+        uint64_t tail = sub->base + sub->transmitted;
+        // Check if this sub has data ready in connFifo
+        bool is_ready = (connFifo[buffSlot].size != -1 && (*recvTail > tail || p == NCCL_PROTO_LL));
+        if (is_ready) {
+          ready_subs[ready_count++] = s;
+        }
+      }
+      if (ready_count > 0) {
+        printf("[NCCL-CONN] #%d: nsubs=%d ready_count=%d ready_subs=[", my_count, args->nsubs, ready_count);
+        for (int i=0; i<ready_count; i++) {
+          printf("%d", ready_subs[i]);
+          if (i < ready_count-1) printf(",");
+        }
+        printf("]\n");
+        fflush(stdout);
+      }
+    }
+
     for (int s=0; s<args->nsubs; s++) {
       struct ncclProxySubArgs* sub = args->subs+s;
       int postedStepId = sub->posted;
